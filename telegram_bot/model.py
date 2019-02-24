@@ -1,49 +1,99 @@
-from PIL import Image
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-import torchvision.transforms as transforms
-import torchvision.models as models
-from scipy import misc
 
 
-# В данном классе мы хотим полностью производить всю обработку картинок, которые поступают к нам из телеграма.
-# Это всего лишь заготовка, поэтому не стесняйтесь менять имена функций, добавлять аргументы, свои классы и
-# все такое.
-class StyleTransferModel:
+class TransformerNet(torch.nn.Module):
     def __init__(self):
-        # Сюда необходимо перенести всю иницализацию, вроде загрузки свеерточной сети и т.д.
-        pass
+        super(TransformerNet, self).__init__()
+        # Initial convolution layers
+        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
+        self.in1 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
+        self.in2 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
+        self.in3 = torch.nn.InstanceNorm2d(128, affine=True)
+        # Residual layers
+        self.res1 = ResidualBlock(128)
+        self.res2 = ResidualBlock(128)
+        self.res3 = ResidualBlock(128)
+        self.res4 = ResidualBlock(128)
+        self.res5 = ResidualBlock(128)
+        # Upsampling Layers
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
+        self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
+        self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
+        # Non-linearities
+        self.relu = torch.nn.ReLU()
 
-    def transfer_style(self, content_img_stream, style_img_stream):
-        # Этот метод по переданным картинкам в каком-то формате (PIL картинка, BytesIO с картинкой
-        # или numpy array на ваш выбор). В телеграм боте мы получаем поток байтов BytesIO,
-        # а мы хотим спрятать в этот метод всю работу с картинками, поэтому лучше принимать тут эти самые потоки
-        # и потом уже приводить их к PIL, а потом и к тензору, который уже можно отдать модели.
-        # В первой итерации, когда вы переносите уже готовую модель из тетрадки с занятия сюда нужно просто
-        # перенести функцию run_style_transfer (не забудьте вынести инициализацию, которая
-        # проводится один раз в конструктор.
+    def forward(self, X):
+        y = self.relu(self.in1(self.conv1(X)))
+        y = self.relu(self.in2(self.conv2(y)))
+        y = self.relu(self.in3(self.conv3(y)))
+        y = self.res1(y)
+        y = self.res2(y)
+        y = self.res3(y)
+        y = self.res4(y)
+        y = self.res5(y)
+        y = self.relu(self.in4(self.deconv1(y)))
+        y = self.relu(self.in5(self.deconv2(y)))
+        y = self.deconv3(y)
+        return y
 
-        # Сейчас этот метод просто возвращает не измененную content картинку
-        # Для наглядности мы сначала переводим ее в тензор, а потом обратно
-        return misc.toimage(self.process_image(content_img_stream)[0])
 
-    # В run_style_transfer используется много внешних функций, их можно добавить как функции класса
-    # Если понятно, что функция является служебной и снаружи использоваться не должна, то перед именем функции
-    # принято ставить _ (выглядит это так: def _foo() )
-    # Эта функция тоже не является
-    def process_image(self, img_stream):
-        # TODO размер картинки, device и трансформации не меняются в течении всей работы модели,
-        # поэтому их нужно перенести в конструктор!
-        imsize = 128
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(device)
-        loader = transforms.Compose([
-            transforms.Resize(imsize),  # нормируем размер изображения
-            transforms.CenterCrop(imsize),
-            transforms.ToTensor()])  # превращаем в удобный формат
+class ConvLayer(torch.nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride):
+        super(ConvLayer, self).__init__()
+        reflection_padding = kernel_size // 2
+        self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
 
-        image = Image.open(img_stream)
-        image = loader(image).unsqueeze(0)
-        return image.to(device, torch.float)
+    def forward(self, x):
+        out = self.reflection_pad(x)
+        out = self.conv2d(out)
+        return out
+
+
+class ResidualBlock(torch.nn.Module):
+    """ResidualBlock
+    introduced in: https://arxiv.org/abs/1512.03385
+    recommended architecture: http://torch.ch/blog/2016/02/04/resnets.html
+    """
+
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = ConvLayer(channels, channels, kernel_size=3, stride=1)
+        self.in1 = torch.nn.InstanceNorm2d(channels, affine=True)
+        self.conv2 = ConvLayer(channels, channels, kernel_size=3, stride=1)
+        self.in2 = torch.nn.InstanceNorm2d(channels, affine=True)
+        self.relu = torch.nn.ReLU()
+
+    def forward(self, x):
+        residual = x
+        out = self.relu(self.in1(self.conv1(x)))
+        out = self.in2(self.conv2(out))
+        out = out + residual
+        return out
+
+
+class UpsampleConvLayer(torch.nn.Module):
+    """UpsampleConvLayer
+    Upsamples the input and then does a convolution. This method gives better results
+    compared to ConvTranspose2d.
+    ref: http://distill.pub/2016/deconv-checkerboard/
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):
+        super(UpsampleConvLayer, self).__init__()
+        self.upsample = upsample
+        reflection_padding = kernel_size // 2
+        self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
+
+    def forward(self, x):
+        x_in = x
+        if self.upsample:
+            x_in = torch.nn.functional.interpolate(x_in, mode='nearest', scale_factor=self.upsample)
+        out = self.reflection_pad(x_in)
+        out = self.conv2d(out)
+        return out
