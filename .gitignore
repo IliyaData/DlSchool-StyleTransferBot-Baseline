@@ -5,3 +5,6 @@ Guide.ipynb
 **/LEGO brick images
 **/.idea
 **/.ipynb_checkpoints
+model
+README.md
+download_saved_models.py
