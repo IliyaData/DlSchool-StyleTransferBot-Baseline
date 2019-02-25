@@ -14,8 +14,7 @@ import torch
 import numpy as np
 
 import utils
-from vgg import Vgg16
-from model import StyleTransferModel
+from model import TransformerNet
 from telegram_token import token, token_dialog
 
 import requests
@@ -23,7 +22,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRe
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, InlineQueryHandler
 import apiai, json
 
-model = StyleTransferModel()
 job_queue = Queue()
 
 def worker(bot, queue):
@@ -31,9 +29,7 @@ def worker(bot, queue):
         query = queue.get()
         s_model = query.callback_query.data
         save_model = ('saved_models/' + s_model + '.pth')
-        print(save_model)
         message = queue.get()
-        print(message)
         # Получаем сообщение с картинкой из очереди и обрабатываем ее
         chat_id = message.chat_id
         print("Got image from {}".format(chat_id))
