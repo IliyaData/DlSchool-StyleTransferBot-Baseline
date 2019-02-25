@@ -28,7 +28,7 @@ def worker(bot, queue):
     while True:
         query = queue.get()
         s_model = query.callback_query.data
-        save_model = ('saved_models/' + s_model + '.pth')
+        save_model = ('save_model/' + s_model + '.pth')
         message = queue.get()
         # Получаем сообщение с картинкой из очереди и обрабатываем ее
         chat_id = message.chat_id
