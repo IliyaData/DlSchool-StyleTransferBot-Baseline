@@ -56,7 +56,7 @@ def photo(bot, update):
 
 
 def transfer_style(content_image, model):
-    content_image = load_image(content_image)
+    content_image = utils.load_image(content_image)
     content_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Lambda(lambda x: x.mul(255))
